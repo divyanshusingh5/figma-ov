@@ -1,0 +1,24 @@
+{
+	"extends": "@vue/tsconfig/tsconfig.web.json",
+	"include": [
+		"env.d.ts", // Includes global TypeScript declarations
+		"src/**/*", // Includes all TypeScript and JavaScript files in the src folder
+		"src/**/*.vue", // Includes all Vue files in the src folder
+		"vite.config.ts" // Includes the Vite configuration file for TypeScript
+	],
+	"compilerOptions": {
+		"baseUrl": ".", // Sets the base directory for resolving non-relative module names
+		"paths": {
+			"@/*": ["./src/*"] // Maps @ to the src folder for easy imports
+		},
+		"declaration": true, // Generates .d.ts declaration files
+		"sourceMap": true, // Generates source maps for debugging
+		"outDir": "dist", // Specifies the output directory for compiled files
+		"skipLibCheck": true // Skips type checking of declaration files
+	},
+	"references": [
+		{
+			"path": "./tsconfig.node.json" // References another tsconfig file, usually for Node.js settings
+		}
+	]
+}
