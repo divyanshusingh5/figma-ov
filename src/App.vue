@@ -1,4 +1,3 @@
-from typing import Literal
 import requests
 import logging
 from langchain_core.messages import HumanMessage
@@ -33,37 +32,32 @@ def call_custom_llm(messages):
 # Node to identify components
 @tool
 def identify_components(query: str):
-    """Identify possible components for a website."""
     return call_custom_llm([{"role": "user", "content": f"Identify possible components for a website based on: {query}"}])
 
-# Node to generate descriptions for each component
+# Node to generate descriptions
 @tool
 def generate_description(component: str):
-    """Generate a detailed description for a given component."""
     return call_custom_llm([{"role": "user", "content": f"Generate a detailed description for the website component: {component}"}])
 
 # Node to generate HTML/CSS code
 @tool
 def generate_code(description: str):
-    """Generate HTML and CSS code for a given description."""
     return call_custom_llm([{"role": "user", "content": f"Generate HTML and CSS code for: {description}"}])
 
 # Define the workflow
 workflow = StateGraph(MessagesState)
 
-# Nodes in the workflow
+# Add nodes to the workflow
 workflow.add_node("identify_components", identify_components)
 workflow.add_node("generate_description", generate_description)
 workflow.add_node("generate_code", generate_code)
 
 # Define the entry point
 workflow.add_edge(START, "identify_components")
-
-# Conditional flow: identify components -> generate description -> generate code
 workflow.add_edge("identify_components", "generate_description")
 workflow.add_edge("generate_description", "generate_code")
 
-# Initialize memory to persist state between graph runs
+# Initialize memory to persist state
 checkpointer = MemorySaver()
 
 # Compile the graph into a Runnable
@@ -72,12 +66,8 @@ app = workflow.compile(checkpointer=checkpointer)
 # Example usage
 if __name__ == "__main__":
     user_query = input("Enter your website query: ")
-    final_state = app.invoke(
-        {"messages": [HumanMessage(content=user_query)]},
-        config={"configurable": {"thread_id": 42}}
-    )
+    final_state = app.invoke({"messages": [HumanMessage(content=user_query)]})
     
-    # Get generated components and code
-    components = final_state["messages"]
-    for i, message in enumerate(components):
-        print(f"Step {i + 1}: {message.content}")
+    # Print results directly
+    for message in final_state["messages"]:
+        print(message.content)
