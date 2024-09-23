@@ -1,4 +1,9 @@
-from langgraph import LangGraph, Node, Edge
+from typing import Literal
+from langchain_core.messages import HumanMessage
+from langchain_core.tools import tool
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, START, StateGraph, MessagesState
+from langgraph.prebuilt import ToolNode
 import requests
 import logging
 
@@ -6,70 +11,81 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 # Configuration
-API_KEY = "<generate_it_from_settings>"
+API_KEY = "<generate_it_from_settings>"  # Replace with your API key
 API_URL = "https://aide-sdlc-backend.imagine.tech/api/v1/brownfield"
 
-# Define a function to call the API
-def call_api(messages):
+# Define a function to call the custom LLM
+def call_custom_llm(messages):
     headers = {
         'Authorization': f'Bearer {API_KEY}',
         'Content-Type': 'application/json'
     }
     data = {
-        'model': 'aide',
+        'model': 'meta-llama/meta-Lama3.1-8B Instruct',  # Specify your model here
         'messages': messages,
         'temperature': 0.5
     }
     
     response = requests.post(API_URL, headers=headers, json=data)
-    response.raise_for_status()
-    return response.json()
+    response.raise_for_status()  # Raise an error for bad responses
+    return response.json()['choices'][0]['message']['content']
 
-# Create the LangGraph
-graph = LangGraph()
+# Define the tools for the agent to use
+@tool
+def search(query: str):
+    """Placeholder function simulating a web search."""
+    if "sf" in query.lower() or "san francisco" in query.lower():
+        return "It's 60 degrees and foggy."
+    return "It's 90 degrees and sunny."
 
-# Nodes for processing
-component_node = Node("Identify Components", 
-                       lambda query: call_api([{"role": "user", "content": f"Identify possible components for a website based on: {query}"}]))
+tools = [search]
+tool_node = ToolNode(tools)
 
-description_node = Node("Generate Description", 
-                        lambda component: call_api([{"role": "user", "content": f"Generate a detailed description for the website component: {component}"}]))
+# Function to determine if we should continue or not
+def should_continue(state: MessagesState) -> Literal["tools", END]:
+    messages = state['messages']
+    last_message = messages[-1]
+    # If the last message includes tool calls, route to the "tools" node
+    if last_message.tool_calls:
+        return "tools"
+    return END  # Stop and reply to the user
 
-code_node = Node("Generate Code", 
-                 lambda description: call_api([{"role": "user", "content": f"Generate HTML and CSS code for: {description}"}]))
+# Function to call the custom LLM
+def call_model(state: MessagesState):
+    messages = state['messages']
+    response = call_custom_llm(messages)
+    return {"messages": [HumanMessage(content=response)]}
 
-# Edges connecting nodes
-graph.add_edge(Edge(component_node, description_node, lambda output: output['choices'][0]['message']['content']))
-graph.add_edge(Edge(description_node, code_node, lambda output: output['choices'][0]['message']['content']))
+# Create the workflow graph
+workflow = StateGraph(MessagesState)
 
-# Function to process user query
-def process_query(user_query):
-    logging.info("Processing user query...")
-    components = component_node.run(user_query)
-    
-    if components:
-        component_list = [comp.strip() for comp in components['choices'][0]['message']['content'].split(",")]
-        html_css_code = {}
+# Define the nodes for the graph
+workflow.add_node("agent", call_model)
+workflow.add_node("tools", tool_node)
 
-        for component in component_list:
-            description = description_node.run(component)
-            if description:
-                code = code_node.run(description['choices'][0]['message']['content'])
-                if code:
-                    html_css_code[component] = code['choices'][0]['message']['content']
-        
-        return html_css_code
-    return {}
+# Set the starting point of the graph
+workflow.add_edge(START, "agent")
+
+# Add conditional edges to handle workflow
+workflow.add_conditional_edges(
+    "agent",
+    should_continue,
+)
+
+# Add an edge from "tools" back to "agent"
+workflow.add_edge("tools", 'agent')
+
+# Initialize memory for state persistence
+checkpointer = MemorySaver()
+
+# Compile the graph into a Runnable
+app = workflow.compile(checkpointer=checkpointer)
 
 # Example usage
 if __name__ == "__main__":
-    user_query = input("Enter your website query: ")
-    generated_code = process_query(user_query)
-    
-    # Print the generated code
-    if generated_code:
-        print("\nGenerated HTML/CSS Code:")
-        for component, code in generated_code.items():
-            print(f"\nComponent: {component}\nCode:\n{code}\n")
-    else:
-        print("No code generated.")
+    user_query = input("Enter your query: ")
+    final_state = app.invoke(
+        {"messages": [HumanMessage(content=user_query)]},
+        config={"configurable": {"thread_id": 42}}
+    )
+    print(final_state["messages"][-1].content)
